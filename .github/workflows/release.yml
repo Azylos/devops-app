@@ -12,20 +12,33 @@ jobs:
   release:
     name: Create Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout du code
         uses: actions/checkout@v4
 
+      - name: Extraction du nom de version
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Lecture du CHANGELOG
+        id: changelog
+        run: |
+          # Extraire la section de la version actuelle du CHANGELOG
+          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          awk "/## \[${VERSION#v}\]/,/## \[/{if(/## \[${VERSION#v}\]/)f=1;else if(/## \[/)f=0;if(f)print}" CHANGELOG.md > release_notes.md || echo "Version $VERSION" > release_notes.md
+
       - name: Création de la release GitHub
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
+          name: Release ${{ steps.get_version.outputs.VERSION }}
+          body_path: release_notes.md
           draft: false
           prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-docker:
     name: Publish Docker Images
