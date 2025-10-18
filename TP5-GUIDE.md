@@ -58,17 +58,31 @@ La release GitHub se crée **automatiquement** grâce au workflow [.github/workf
 
 ### Workflow automatique
 
-Dès que le tag `v1.0.0` est poussé :
+**OUI, tout est automatique !** Dès que vous faites `git push origin v1.0.0` :
 
-1. **GitHub Actions détecte le tag** (pattern `v*.*.*`)
-2. **Job `release`** :
+1. ✅ **GitHub Actions détecte le tag** (pattern `v*.*.*`)
+2. ✅ **Job `release`** (durée ~30 secondes) :
    - Extrait la version du tag
    - Lit les notes de version depuis CHANGELOG.md
-   - Crée la release GitHub automatiquement
-3. **Job `publish-docker`** :
+   - Crée la release GitHub automatiquement avec les notes
+3. ✅ **Job `publish-docker`** (durée ~3-5 minutes) :
    - Build les images Docker (backend + frontend)
-   - Publie sur GitHub Container Registry
+   - Convertit le nom du repo en minuscules (requis par Docker)
+   - Publie sur GitHub Container Registry (ghcr.io)
    - Tags : `v1.0.0` et `latest`
+
+**Résultat automatique :**
+```
+✅ Tag v1.0.0 créé sur GitHub
+✅ Release GitHub publiée avec notes du CHANGELOG
+✅ Images Docker disponibles :
+   - ghcr.io/azylos/devops-app/backend:v1.0.0
+   - ghcr.io/azylos/devops-app/backend:latest
+   - ghcr.io/azylos/devops-app/frontend:v1.0.0
+   - ghcr.io/azylos/devops-app/frontend:latest
+```
+
+**Vous n'avez RIEN à faire d'autre que pousser le tag !**
 
 ### Vérifier la release
 
