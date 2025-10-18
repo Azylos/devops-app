@@ -3,10 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*.*.*'
-
-env:
-  REGISTRY: ghcr.io
+      - 'v*.*.*'   # version stable
 
 jobs:
   release:
@@ -14,84 +11,95 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
     steps:
-      - name: Checkout du code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Extraction du nom de version
-        id: get_version
+      - name: Version
+        id: v
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-      - name: Lecture du CHANGELOG
-        id: changelog
+      - name: Changelog (facultatif)
         run: |
-          # Extraire la section de la version actuelle du CHANGELOG
-          VERSION="${{ steps.get_version.outputs.VERSION }}"
+          VERSION="${{ steps.v.outputs.VERSION }}"
           awk "/## \[${VERSION#v}\]/,/## \[/{if(/## \[${VERSION#v}\]/)f=1;else if(/## \[/)f=0;if(f)print}" CHANGELOG.md > release_notes.md || echo "Version $VERSION" > release_notes.md
 
-      - name: Création de la release GitHub
-        uses: softprops/action-gh-release@v1
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: Release ${{ steps.get_version.outputs.VERSION }}
+          name: Release ${{ steps.v.outputs.VERSION }}
           body_path: release_notes.md
-          draft: false
-          prerelease: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish-docker:
-    name: Publish Docker Images
+    name: Build & Push Docker Hub
     runs-on: ubuntu-latest
     needs: release
-
     strategy:
       matrix:
         service: [backend, frontend]
 
+    env:
+      DOCKERHUB_IMAGE: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/tp-devops
+
     steps:
-      - name: Checkout du code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configuration de Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-qemu-action@v3    # multi-arch OK
+      - uses: docker/setup-buildx-action@v3
 
-      - name: Login au GitHub Container Registry
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Login à DockerHub
-        uses: docker/login-action@v3
-        with:
+          registry: docker.io
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extraction de la version
-        id: version
+      - name: Version
+        id: v
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-      - name: Conversion du nom du repo en minuscules
-        id: repo
-        run: echo "REPO_LOWER=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
-
-      - name: Extraction du nom du repo (pour DockerHub)
-        id: repo_name
-        run: echo "REPO_NAME=$(echo '${{ github.repository }}' | cut -d'/' -f2 | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
-
-      - name: Build et Push de l'image Docker ${{ matrix.service }}
-        uses: docker/build-push-action@v5
+      - name: Build & Push ${{ matrix.service }}
+        uses: docker/build-push-action@v6
         with:
           context: ./${{ matrix.service }}
           file: ./${{ matrix.service }}/Dockerfile
           push: true
           platforms: linux/amd64,linux/arm64
+          # On pousse DANS le même repo Docker Hub "tp-devops",
+          # avec des tags préfixés par service (backend|frontend)
           tags: |
-            ${{ env.REGISTRY }}/${{ steps.repo.outputs.REPO_LOWER }}/${{ matrix.service }}:${{ steps.version.outputs.VERSION }}
-            ${{ env.REGISTRY }}/${{ steps.repo.outputs.REPO_LOWER }}/${{ matrix.service }}:latest
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ steps.repo_name.outputs.REPO_NAME }}-${{ matrix.service }}:${{ steps.version.outputs.VERSION }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/${{ steps.repo_name.outputs.REPO_NAME }}-${{ matrix.service }}:latest
+            ${{ env.DOCKERHUB_IMAGE }}:${{ matrix.service }}-${{ steps.v.outputs.VERSION }}
+            ${{ env.DOCKERHUB_IMAGE }}:${{ matrix.service }}-latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  deploy-render-backend:
+    name: Deploy Render (backend)
+    runs-on: ubuntu-latest
+    needs: publish-docker
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          curl -sfS -X POST \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID_BACKEND/deploys" \
+            -d '{"clearCache":false}'
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID_BACKEND: ${{ secrets.RENDER_SERVICE_ID_BACKEND }}
+
+  deploy-render-frontend:
+    name: Deploy Render (frontend)
+    runs-on: ubuntu-latest
+    needs: publish-docker
+    steps:
+      - name: Trigger Render deploy
+        run: |
+          curl -sfS -X POST \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" \
+            "https://api.render.com/v1/services/$RENDER_SERVICE_ID_FRONTEND/deploys" \
+            -d '{"clearCache":false}'
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          RENDER_SERVICE_ID_FRONTEND: ${{ secrets.RENDER_SERVICE_ID_FRONTEND }}
