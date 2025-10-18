@@ -1,0 +1,77 @@
+# Docker Compose pour la production
+# Utilise les images publiées sur DockerHub
+
+version: '3.8'
+
+services:
+  # Base de données PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: devops_db_prod
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-devops_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-devops_password}
+      POSTGRES_DB: ${POSTGRES_DB:-devops_db}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - devops_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-devops_user} -d ${POSTGRES_DB:-devops_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend depuis DockerHub
+  backend:
+    image: ${DOCKERHUB_USERNAME}/devops-app-backend:latest
+    container_name: devops_backend_prod
+    restart: always
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-devops_user}:${POSTGRES_PASSWORD:-devops_password}@db:5432/${POSTGRES_DB:-devops_db}
+      - ENVIRONMENT=production
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - devops_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend depuis DockerHub
+  frontend:
+    image: ${DOCKERHUB_USERNAME}/devops-app-frontend:latest
+    container_name: devops_frontend_prod
+    restart: always
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    environment:
+      - PORT=3000
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      - backend
+    networks:
+      - devops_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  devops_network:
+    driver: bridge
+
+volumes:
+  postgres_data_prod:
+    driver: local
