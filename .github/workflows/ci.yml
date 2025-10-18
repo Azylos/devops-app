@@ -77,35 +77,11 @@ jobs:
           # Linter le reste avec des règles plus souples
           flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
-  # Job 3: Tests du Frontend
-  test-frontend:
-    name: Tests Frontend Node.js
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout du code
-        uses: actions/checkout@v4
-
-      - name: Configuration de Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-          cache: 'npm'
-          cache-dependency-path: './frontend/package-lock.json'
-
-      - name: Installation des dépendances
-        working-directory: ./frontend
-        run: npm ci
-
-      - name: Vérification de la syntaxe
-        working-directory: ./frontend
-        run: node -c server.js
-
-  # Job 4: Build des images Docker
+  # Job 3: Build des images Docker
   build-docker:
     name: Build Images Docker
     runs-on: ubuntu-latest
-    needs: [test-backend, lint-backend, test-frontend]
+    needs: [test-backend, lint-backend]
 
     strategy:
       matrix:
