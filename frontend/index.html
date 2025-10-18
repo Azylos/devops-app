@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Articles - DevOps App</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+
+        #loading {
+            text-align: center;
+            color: white;
+            font-size: 1.2em;
+            padding: 20px;
+        }
+
+        #error {
+            background-color: #ff6b6b;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .articles-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 25px;
+        }
+
+        .article-card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .article-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.3);
+        }
+
+        .article-card h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.5em;
+        }
+
+        .article-meta {
+            display: flex;
+            justify-content: space-between;
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+
+        .article-author {
+            font-weight: 600;
+        }
+
+        .article-date {
+            color: #999;
+        }
+
+        .article-content {
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .refresh-btn {
+            background: white;
+            color: #667eea;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            display: block;
+            margin: 0 auto 30px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            transition: all 0.3s ease;
+        }
+
+        .refresh-btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.3);
+        }
+
+        .refresh-btn:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Articles DevOps</h1>
+
+        <button class="refresh-btn" onclick="loadArticles()">Actualiser les articles</button>
+
+        <div id="error"></div>
+        <div id="loading">Chargement des articles...</div>
+        <div id="articles" class="articles-grid"></div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8000/articles';
+
+        async function loadArticles() {
+            const loadingElement = document.getElementById('loading');
+            const articlesElement = document.getElementById('articles');
+            const errorElement = document.getElementById('error');
+
+            // Afficher le chargement
+            loadingElement.style.display = 'block';
+            articlesElement.innerHTML = '';
+            errorElement.style.display = 'none';
+
+            try {
+                const response = await fetch(API_URL);
+
+                if (!response.ok) {
+                    throw new Error(`Erreur HTTP: ${response.status}`);
+                }
+
+                const articles = await response.json();
+
+                // Masquer le chargement
+                loadingElement.style.display = 'none';
+
+                // Afficher les articles
+                if (articles.length === 0) {
+                    articlesElement.innerHTML = '<p style="color: white; text-align: center;">Aucun article disponible.</p>';
+                } else {
+                    articles.forEach(article => {
+                        const articleCard = createArticleCard(article);
+                        articlesElement.appendChild(articleCard);
+                    });
+                }
+            } catch (error) {
+                console.error('Erreur lors du chargement des articles:', error);
+                loadingElement.style.display = 'none';
+                errorElement.style.display = 'block';
+                errorElement.textContent = `Erreur: ${error.message}. Assurez-vous que l'API est démarrée sur ${API_URL}`;
+            }
+        }
+
+        function createArticleCard(article) {
+            const card = document.createElement('div');
+            card.className = 'article-card';
+
+            card.innerHTML = `
+                <h2>${escapeHtml(article.titre)}</h2>
+                <div class="article-meta">
+                    <span class="article-author">${escapeHtml(article.auteur)}</span>
+                    <span class="article-date">${formatDate(article.date)}</span>
+                </div>
+                <p class="article-content">${escapeHtml(article.contenu)}</p>
+            `;
+
+            return card;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatDate(dateString) {
+            const options = { year: 'numeric', month: 'long', day: 'numeric' };
+            return new Date(dateString).toLocaleDateString('fr-FR', options);
+        }
+
+        // Charger les articles au chargement de la page
+        window.addEventListener('DOMContentLoaded', loadArticles);
+    </script>
+</body>
+</html>
