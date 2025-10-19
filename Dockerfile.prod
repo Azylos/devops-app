@@ -1,67 +1,70 @@
-# ===== 1) Build du FRONTEND =====
-FROM node:20-bookworm AS frontend-build
-WORKDIR /app/frontend
-COPY frontend/package*.json ./
-RUN npm ci
-COPY frontend/ .
-# Adapter la commande si ton build sort dans "build" au lieu de "dist"
-RUN npm run build
+# Dockerfile de production - Image unique avec backend + frontend + PostgreSQL
+# Pour déploiement Render gratuit (1 seul service)
 
-# ===== 2) Runtime: Python + PostgreSQL 15 + client =====
 FROM python:3.11-slim-bookworm
 
-# Outils pour ajouter le dépôt PGDG (PostgreSQL 15) + utilitaires
+# === ÉTAPE 1 : Installation des dépendances système ===
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    wget gnupg ca-certificates curl \
- && rm -rf /var/lib/apt/lists/*
+    wget \
+    gnupg \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Dépôt PGDG pour bookworm
+# === ÉTAPE 2 : Ajouter le dépôt PostgreSQL officiel ===
 RUN echo "deb http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
- && wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/pgdg.gpg
+    && wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/pgdg.gpg
 
-# Install: PostgreSQL 15 serveur + client
+# === ÉTAPE 3 : Installer PostgreSQL 15 + Node.js ===
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    postgresql-15 postgresql-client-15 \
- && rm -rf /var/lib/apt/lists/*
+    postgresql-15 \
+    postgresql-client-15 \
+    nodejs \
+    npm \
+    && rm -rf /var/lib/apt/lists/*
 
-# Dossiers applis + data PG
-ENV PGDATA=/var/lib/postgresql/data
-RUN mkdir -p /app/backend /app/frontend_dist "$PGDATA" \
- && chown -R postgres:postgres /var/lib/postgresql
+# === ÉTAPE 4 : Configuration PostgreSQL ===
+ENV PGDATA=/var/lib/postgresql/data \
+    POSTGRES_USER=devops_user \
+    POSTGRES_PASSWORD=devops_password \
+    POSTGRES_DB=devops_db
 
-# ===== BACKEND =====
+# Créer les répertoires nécessaires
+RUN mkdir -p /var/lib/postgresql/data /app/backend /app/frontend \
+    && chown -R postgres:postgres /var/lib/postgresql
+
+# Initialiser PostgreSQL (en tant que postgres user)
+USER postgres
+RUN /usr/lib/postgresql/15/bin/initdb -D /var/lib/postgresql/data
+USER root
+
+# === ÉTAPE 5 : Installation Backend (Python/FastAPI) ===
 WORKDIR /app/backend
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .
 
-# ===== FRONTEND (artefacts seulement) =====
-# Copie le résultat du build depuis l'étape Node
-# Adapte le chemin si ton build sort dans /app/frontend/build
-COPY --from=frontend-build /app/frontend/dist /app/frontend_dist
+# === ÉTAPE 6 : Installation Frontend (Node.js/Express) ===
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm install --production
+COPY frontend/ .
 
-# ===== Script(s) & init SQL =====
+# === ÉTAPE 7 : Scripts et données ===
 WORKDIR /app
 COPY docker/start-all.sh /app/start-all.sh
 COPY db/init.sql /app/init.sql
 RUN chmod +x /app/start-all.sh
 
-# ===== (Optionnel) Init DB au build =====
-# Ce n'est PAS idéal (mieux vaut init au runtime), mais si tu veux le faire :
-USER postgres
-RUN /usr/lib/postgresql/15/bin/initdb -D "$PGDATA"
-USER root
-
-# Ports
+# === ÉTAPE 8 : Configuration finale ===
+# Exposer le port 8080 (frontend - port principal pour Render)
 EXPOSE 8080
 
-# Vars d'env par défaut (écrase-les dans Render)
+# Variables d'environnement par défaut
 ENV PORT=8080 \
     BACKEND_PORT=8000 \
-    POSTGRES_USER=devops_user \
-    POSTGRES_PASSWORD=devops_password \
-    POSTGRES_DB=devops_db \
-    DATABASE_URL=postgresql://devops_user:devops_password@localhost:5432/devops_db
+    DATABASE_URL=postgresql://devops_user:devops_password@localhost:5432/devops_db \
+    ENVIRONMENT=production
 
-# Démarrage
+# === ÉTAPE 9 : Commande de démarrage ===
 CMD ["/app/start-all.sh"]
