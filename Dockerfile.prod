@@ -1,62 +1,67 @@
-# Dockerfile de production - Image unique avec backend + frontend + PostgreSQL
-# Pour déploiement Render gratuit (1 seul service)
+# ===== 1) Build du FRONTEND =====
+FROM node:20-bookworm AS frontend-build
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm ci
+COPY frontend/ .
+# Adapter la commande si ton build sort dans "build" au lieu de "dist"
+RUN npm run build
 
-FROM python:3.11-slim
+# ===== 2) Runtime: Python + PostgreSQL 15 + client =====
+FROM python:3.11-slim-bookworm
 
-# Installation des dépendances système
-RUN apt-get update && apt-get install -y \
-    postgresql-15 \
-    nodejs \
-    npm \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+# Outils pour ajouter le dépôt PGDG (PostgreSQL 15) + utilitaires
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget gnupg ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
 
-# Configuration PostgreSQL
-ENV POSTGRES_USER=devops_user \
-    POSTGRES_PASSWORD=devops_password \
-    POSTGRES_DB=devops_db \
-    PGDATA=/var/lib/postgresql/data
+# Dépôt PGDG pour bookworm
+RUN echo "deb http://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+ && wget -qO- https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/pgdg.gpg
 
-# Créer les répertoires nécessaires
-RUN mkdir -p /var/lib/postgresql/data && \
-    chown -R postgres:postgres /var/lib/postgresql && \
-    mkdir -p /app/backend /app/frontend
+# Install: PostgreSQL 15 serveur + client
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    postgresql-15 postgresql-client-15 \
+ && rm -rf /var/lib/apt/lists/*
 
-# Initialiser PostgreSQL
-USER postgres
-RUN /usr/lib/postgresql/15/bin/initdb -D /var/lib/postgresql/data
+# Dossiers applis + data PG
+ENV PGDATA=/var/lib/postgresql/data
+RUN mkdir -p /app/backend /app/frontend_dist "$PGDATA" \
+ && chown -R postgres:postgres /var/lib/postgresql
 
-# Revenir en root pour installer les applications
-USER root
-
-# === BACKEND ===
+# ===== BACKEND =====
 WORKDIR /app/backend
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ .
 
-# === FRONTEND ===
-WORKDIR /app/frontend
-COPY frontend/package*.json ./
-RUN npm install --production
-COPY frontend/ .
+# ===== FRONTEND (artefacts seulement) =====
+# Copie le résultat du build depuis l'étape Node
+# Adapte le chemin si ton build sort dans /app/frontend/build
+COPY --from=frontend-build /app/frontend/dist /app/frontend_dist
 
-# === SCRIPT DE DÉMARRAGE ===
+# ===== Script(s) & init SQL =====
 WORKDIR /app
 COPY docker/start-all.sh /app/start-all.sh
 COPY db/init.sql /app/init.sql
 RUN chmod +x /app/start-all.sh
 
-# Exposer les ports
-# Port 8080 : Frontend (principal pour Render)
-# Port 8000 : Backend (interne)
-# Port 5432 : PostgreSQL (interne)
+# ===== (Optionnel) Init DB au build =====
+# Ce n'est PAS idéal (mieux vaut init au runtime), mais si tu veux le faire :
+USER postgres
+RUN /usr/lib/postgresql/15/bin/initdb -D "$PGDATA"
+USER root
+
+# Ports
 EXPOSE 8080
 
-# Variables d'environnement
+# Vars d'env par défaut (écrase-les dans Render)
 ENV PORT=8080 \
     BACKEND_PORT=8000 \
+    POSTGRES_USER=devops_user \
+    POSTGRES_PASSWORD=devops_password \
+    POSTGRES_DB=devops_db \
     DATABASE_URL=postgresql://devops_user:devops_password@localhost:5432/devops_db
 
-# Commande de démarrage
+# Démarrage
 CMD ["/app/start-all.sh"]
