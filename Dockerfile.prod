@@ -1,0 +1,62 @@
+# Dockerfile de production - Image unique avec backend + frontend + PostgreSQL
+# Pour déploiement Render gratuit (1 seul service)
+
+FROM python:3.11-slim
+
+# Installation des dépendances système
+RUN apt-get update && apt-get install -y \
+    postgresql-15 \
+    nodejs \
+    npm \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Configuration PostgreSQL
+ENV POSTGRES_USER=devops_user \
+    POSTGRES_PASSWORD=devops_password \
+    POSTGRES_DB=devops_db \
+    PGDATA=/var/lib/postgresql/data
+
+# Créer les répertoires nécessaires
+RUN mkdir -p /var/lib/postgresql/data && \
+    chown -R postgres:postgres /var/lib/postgresql && \
+    mkdir -p /app/backend /app/frontend
+
+# Initialiser PostgreSQL
+USER postgres
+RUN /usr/lib/postgresql/15/bin/initdb -D /var/lib/postgresql/data
+
+# Revenir en root pour installer les applications
+USER root
+
+# === BACKEND ===
+WORKDIR /app/backend
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY backend/ .
+
+# === FRONTEND ===
+WORKDIR /app/frontend
+COPY frontend/package*.json ./
+RUN npm install --production
+COPY frontend/ .
+
+# === SCRIPT DE DÉMARRAGE ===
+WORKDIR /app
+COPY docker/start-all.sh /app/start-all.sh
+COPY db/init.sql /app/init.sql
+RUN chmod +x /app/start-all.sh
+
+# Exposer les ports
+# Port 8080 : Frontend (principal pour Render)
+# Port 8000 : Backend (interne)
+# Port 5432 : PostgreSQL (interne)
+EXPOSE 8080
+
+# Variables d'environnement
+ENV PORT=8080 \
+    BACKEND_PORT=8000 \
+    DATABASE_URL=postgresql://devops_user:devops_password@localhost:5432/devops_db
+
+# Commande de démarrage
+CMD ["/app/start-all.sh"]

@@ -1,47 +1,30 @@
 # Configuration Render - Infrastructure as Code
-# Permet de déployer automatiquement backend + frontend + database
+# Image unique contenant Backend + Frontend + PostgreSQL
+# Solution pour plan gratuit Render (1 seul service web)
 
 services:
-  # Backend FastAPI
+  # Application complète (backend + frontend + database)
   - type: web
-    name: devops-app-backend
-    runtime: docker
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
+    name: devops-app
+    runtime: image
+    image:
+      url: docker.io/azylos/tp-devops:latest
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: devops-db
-          property: connectionString
       - key: PORT
+        value: 8080
+      - key: BACKEND_PORT
         value: 8000
+      - key: POSTGRES_USER
+        value: devops_user
+      - key: POSTGRES_PASSWORD
+        value: devops_password
+      - key: POSTGRES_DB
+        value: devops_db
+      - key: ENVIRONMENT
+        value: production
     healthCheckPath: /
     autoDeploy: true
-    region: frankfurt
-
-  # Frontend Node.js/Express
-  - type: web
-    name: devops-app-frontend
-    runtime: docker
-    dockerfilePath: ./frontend/Dockerfile
-    dockerContext: ./frontend
-    envVars:
-      - key: BACKEND_URL
-        fromService:
-          type: web
-          name: devops-app-backend
-          property: host
-      - key: PORT
-        value: 3000
-    healthCheckPath: /
-    autoDeploy: true
-    region: frankfurt
-
-# Base de données PostgreSQL
-databases:
-  - name: devops-db
-    databaseName: devops_db
-    user: devops_user
     region: frankfurt
     plan: free
-    ipAllowList: []
+    # Render expose automatiquement le port 8080 (frontend)
+    # Le backend tourne en interne sur le port 8000
